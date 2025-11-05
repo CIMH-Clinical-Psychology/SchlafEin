@@ -1,3 +1,3 @@
-# SchlafEin-1
+# SchlafEin
 
-Forked from SteffenGais' repo, for changes I've (@caggursoy) made, check respective branch of this repo
+Forked from Steffen Gais' 

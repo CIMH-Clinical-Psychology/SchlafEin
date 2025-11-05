@@ -2,11 +2,13 @@
 % Simple help for sleep scoring
 % 16.09.2021 Version 0.946beta Steffen Gais
 % 0.946 - initial version for GitHub
+% 0.947 - preloading spectra
+% 0.948 - invert button
 
 function SchlafEin
-    global SED
+    global SED %#ok<*GVMIS> 
     global SEversion
-    SEversion = 0.946;
+    SEversion = 0.948;
     horiversion = false;
 
     SE_update;    
@@ -35,7 +37,7 @@ function SchlafEin
                 if SED.version < 0.94
                     SED.hori = horiversion;
                     SED.score.hori = zeros(size(SED.score.stage,1),6);
-                    SED.frqs = [0.3 1.2 2 8 12 16];
+                    SED.frqs = [0.1 1.0; 1.0 3; 3 8; 8 12; 11 17]; % [0.3 1.2 4 8 12 16];
                 end
                 if SED.version < 0.942
                     SED.header.isecg = cellfun(@any,strfind([SED.header.channelinfos.labels],'ECG')) | cellfun(@any,strfind([SED.header.channelinfos.labels],'EKG'));
@@ -51,23 +53,45 @@ function SchlafEin
             end
         end
     end
+
+    % downsample
+    sr = SED.header.commoninfos.samplingrate;
+    if sr > 200
+        fprintf('Downsampling ...');
+        lsr = 200;
+        dsdata = fftfilter(SED.data',sr,0,45,'bandp')';
+        ratio = sr/lsr;
+        dsdata = dsdata(:,1:ratio:end);
+        SED.highdata = SED.data;
+        SED.data = dsdata;
+        SED.header.commoninfos.highsamplingrate = SED.header.commoninfos.samplingrate;
+        SED.header.commoninfos.samplingrate = lsr;
+        SED.header.commoninfos.highdatapoints = SED.header.commoninfos.datapoints;
+        SED.header.commoninfos.datapoints = SED.header.commoninfos.datapoints/ratio;
+        SED.header.commoninfos.highsamplinginterval = SED.header.commoninfos.samplinginterval;
+        SED.header.commoninfos.samplinginterval = SED.header.commoninfos.samplinginterval*ratio;
+        fprintf('done.\n')
+    end
+
+    SE_prepare_spectra;
+
     SE_create_window;
     SE_plot;
 end
 
 function SE_plot
-    global SED
+    global SED spec spec_t
+    len = round(SED.display.epochlength * SED.header.commoninfos.samplingrate);
+    maxpage = floor(SED.header.commoninfos.datapoints/len);
     plotcolor = SED.objects.axes(1).XColor;
     chns = find(~SED.display.hiddenchans);
     nch = length(chns);
     pos = round((SED.display.position * SED.header.commoninfos.samplingrate))+1;
     page = floor(SED.display.position/SED.display.epochlength)+1;
-    len = round(SED.display.epochlength * SED.header.commoninfos.samplingrate);
-    maxpage = floor(SED.header.commoninfos.datapoints/len);
     x = SED.display.position:SED.display.epochlength/len:SED.display.position+SED.display.epochlength;
     st = SED.header.commoninfos.starttime+SED.display.position/(24*60*60);
     horipos = x(1) + (2.5:5:27.5);
-    
+
     for ch = 1:nch
 %       mi = min(SED.data(chns(ch),pos:pos+len-1));     % this is useful if plots are not mean-centered
 %       ma = max(SED.data(chns(ch),pos:pos+len-1));
@@ -77,11 +101,10 @@ function SE_plot
 %           YLim =  [-SED.display.ranges(chns(ch)) SED.display.ranges(chns(ch))];
 %       end
         YLim =  [-SED.display.ranges(chns(ch)) SED.display.ranges(chns(ch))];
-    
+
         hold(SED.objects.axes(ch), 'off');
         if SED.header.iseeg(chns(ch))
-            [spec, t] = SE_calc_CWT(double(SED.data(chns(ch),pos:pos+len-1)),SED.header.commoninfos.samplingrate);
-            imagesc(SED.objects.axes(ch), t+x(1), YLim(1)+(YLim(2)-YLim(1))/12:(YLim(2)-YLim(1))/6:YLim(2), spec, 'AlphaData', 0.5);
+            imagesc(SED.objects.axes(ch), spec_t+x(1), YLim(1)+(YLim(2)-YLim(1))/12:(YLim(2)-YLim(1))/6:YLim(2), spec(:,:,chns(ch),page), 'AlphaData', 0.5, [0 3]);
             hold(SED.objects.axes(ch), 'on');
             a = axis(SED.objects.axes(ch));
             axis(SED.objects.axes(ch),[x(1),x(end-1),a(3),a(4)]);
@@ -109,7 +132,7 @@ function SE_plot
         SED.objects.axes(ch).XAxis.Visible = 'off';
         SED.objects.axes(ch).YAxis.Label.String = SED.header.channelinfos(chns(ch)).labels{1};
         SED.objects.axes(ch).FontUnits = 'normalized';
-        SED.objects.axes(ch).FontSize = 0.025/SED.objects.axes(ch).Position(4);
+        SED.objects.axes(ch).FontSize = 0.010/SED.objects.axes(ch).Position(4);  % 0.025
         if ch==1
             for i=1:6
                 if SED.score.hori(page,i)
@@ -120,11 +143,11 @@ function SE_plot
         if SED.header.iseeg(chns(ch))
             frqb = {'SO','delta','theta','alpha','spindle'};
             y = double(YLim(1)+(YLim(2)-YLim(1))/10:(YLim(2)-YLim(1))/5:YLim(2));
-            for i=1:5
-                t = text(SED.objects.axes(ch), x(end)+0.1, y(i), frqb{i});
-%               text(SED.objects.axes(ch), x(end)+0.1, y(i), [num2str(SED.frqs(i)) '-' num2str(SED.frqs(i+1))]);
-                t.FontUnits = 'normalized';
-                t.FontSize = 0.125;
+            for i=1:length(frqb)
+                tx = text(SED.objects.axes(ch), x(end)+0.1, y(i), frqb{i});
+%               text(SED.objects.axes(ch), x(end)+0.1, y(i), [num2str(SED.frqs(i,1)) '-' num2str(SED.frqs(i,2))]);
+                tx.FontUnits = 'normalized';
+                tx.FontSize = 0.125;
             end
         end
     end
@@ -132,7 +155,7 @@ function SE_plot
     SED.objects.axes(ch).XAxis.Label.String = 'Time [s]';
     SED.objects.axes(ch).XTickLabel = x(1):5:x(end);
     SED.objects.axes(ch).TickLength = [0.001 0];
-    
+
     if ~isfield(SED.objects, 'time') || isempty(SED.objects.time) || ~isvalid(SED.objects.time)
         SED.objects.time = annotation(SED.objects.window, 'textbox', [0.12 0 0.1 0.1], ... 
             'String', datestr(st, 'HH:MM:SS'), ...
@@ -214,7 +237,7 @@ function SE_hypnogram
     end
     warning('off', 'MATLAB:HandleGraphics:ObsoletedProperty:JavaFrame');
     warning('off','MATLAB:ui:javaframe:PropertyToBeRemoved');
-    jFrame = get(SED.objects.hypnowindow,'JavaFrame');
+    jFrame = get(SED.objects.hypnowindow,'JavaFrame'); %#ok<JAVFM> 
     jFrame.fHG2Client.getWindow.setAlwaysOnTop(true);
 
     cla(SED.objects.hypnoaxes(1));
@@ -301,7 +324,7 @@ function SE_create_window
     for ch = 1:nch
         SED.objects.axes(ch) = axes('Units','normalized', 'Position',[0.075 1-(0.07+(ch*height)) 0.9 height-height/10]);
         SED.objects.selbuttons(ch) = uicontrol('Style','checkbox', 'Value', 1, ... 
-            'Units','normalized', 'Position',[0 1-(0.10+(ch-1)*height) 0.025 0.035]);
+            'Units','normalized', 'Position',[0 1-(0.10+(ch-1)*height) 0.015 0.035]);
     end
 
     SED.objects.freebuttons = gobjects([8,1]);
@@ -364,7 +387,7 @@ function SE_create_window
         SED.objects.hoributtons(10).Callback = @SE_buttonpush;    
     end
     
-    SED.objects.ctrlbuttons = gobjects([2,1]);
+    SED.objects.ctrlbuttons = gobjects([18,1]);
     SED.objects.ctrlbuttons(1) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','<<', 'TooltipString', 'Previous Page', ... 
         'Units','normalized', 'Position',[0.88 0 0.05 0.05]);
     SED.objects.ctrlbuttons(1).Callback = @SE_ctrlbuttonpush;    
@@ -416,6 +439,9 @@ function SE_create_window
     SED.objects.ctrlbuttons(17) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','FB', 'TooltipString', 'Set Frequency Bands', ... 
         'Units','normalized', 'Position',[0.57 0 0.05 0.05]);
     SED.objects.ctrlbuttons(17).Callback = @SE_find_spectral_bands;    
+    SED.objects.ctrlbuttons(18) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','inv', 'TooltipString', 'Invert channel selection', ... 
+        'Units','normalized', 'Position',[0 1-(0.10 + nch*height) 0.025 0.02]);
+    SED.objects.ctrlbuttons(18).Callback = @SE_ctrlbuttonpush;    
 end
 
 function SE_buttonpush(src,~)
@@ -689,7 +715,7 @@ function SE_ctrlbuttonpush(src,~)
             end
             stages = SED.score.stage;
             moves = SED.score.movement;
-            stages(stages>=0 & stages<=6) = stages(stages>=0 & stages<=6)-1;
+            stages(stages>=0 & stages<=6) = addpath;
             fprintf(exportfile, '%1d\t%1d\t\t%1d\t%1d\t%1d\t%1d\t%1d\t%1d\r\n',[stages, moves, SED.score.hori(:,1:6)]');
             %fprintf('%1d\t%1d\n',[stages, moves]');
             fclose(exportfile);
@@ -790,6 +816,10 @@ function SE_ctrlbuttonpush(src,~)
             [fn, pn] = uiputfile({'*.mat','SchlafEin Results Matlab Output'},'Choose a filename',[SED.filename(1:dt(end)-1) '-results.mat']);
             mfile = fullfile(pn, fn);
             save(mfile,'twaso','ts1','ts2','ts3','ts4','tsws','trem','tmt','tst','tts1','swslat','remlat','pwaso','ps1','ps2','ps3','ps4','psws','prem','pmt','sonset','soffset','sdur');
+        case 'inv'
+            for i=1:length(SED.objects.selbuttons)
+                SED.objects.selbuttons(i).Value = 1-SED.objects.selbuttons(i).Value;
+            end
     end
 end
 
@@ -1146,7 +1176,7 @@ function ok = SE_open
     SED.display.ranges(SED.header.iseeg) = quantile(abs(reshape(SED.data(SED.header.iseeg,:),sum(SED.header.iseeg)*size(SED.data,2),1)),0.99,1);
     SED.display.hiddenchans = zeros(SED.header.commoninfos.numberofchannels,1);
     fprintf(' done.\n');
-    cd(pn);
+    % cd(pn);
     ok = true;
 end
 
@@ -1189,33 +1219,38 @@ function SE_find_spectral_bands(~, ~)
     %fftlen = 2^nextpow2(ndat/100);
     fftlen = srate*8;
     [psd,f] = pwelch(SED.data(SED.header.iseeg,:)', fftlen, fftlen/2, fftlen, srate);
-    fr = f<40;
-    frqb = {'SO','SO','delta','theta','alpha','spindle'};
+    fr = f<25;
+    frqb = {'SO','delta','theta','alpha','spindle'};
 
     fig = figure;
     fig.Units = 'normalized';
     t1 = uicontrol(fig, 'Style','text');
     t1.String = 'Lower Limit';
     t1.Units = 'normalized';
-    t1.Position = [0.85 0.86 0.1 0.05];
+    t1.Position = [0.75 0.86 0.1 0.05];
     t2 = uicontrol(fig, 'Style','text');
     t2.String = 'Upper Limit';
     t2.Units = 'normalized';
-    t2.Position = [0.85 0.735 0.1 0.05];
-    ax = axes('Position',[0.1 0.1 0.7 0.8]);
+    t2.Position = [0.875 0.86 0.1 0.05];
+    ax = axes('Position',[0.1 0.1 0.6 0.8]);
     semilogy(ax,f(fr),(psd(fr,:).*f(fr).^2)');
     frtext = gobjects(length(SED.frqs));
-    frfield = gobjects(length(SED.frqs));
+    frfield = gobjects(length(SED.frqs),2);
     for i=1:length(SED.frqs)
         frtext(i) = uicontrol(fig, 'Style','text');
         frtext(i).String = frqb(i);
         frtext(i).Units = 'normalized';
-        frtext(i).Position = [0.85 0.83-(i-1)*0.125 0.1 0.05];
+        frtext(i).Position = [0.8125 0.785-(i-1)*0.125 0.1 0.05];
 
-        frfield(i) = uicontrol(fig,'Style','edit');
-        frfield(i).String = num2str(SED.frqs(i));
-        frfield(i).Units = 'normalized';
-        frfield(i).Position = [0.85 0.8-(i-1)*0.125 0.1 0.05];
+        frfield(i,1) = uicontrol(fig,'Style','edit');
+        frfield(i,1).String = num2str(SED.frqs(i,1));
+        frfield(i,1).Units = 'normalized';
+        frfield(i,1).Position = [0.75 0.75-(i-1)*0.125 0.1 0.05];
+
+        frfield(i,2) = uicontrol(fig,'Style','edit');
+        frfield(i,2).String = num2str(SED.frqs(i,2));
+        frfield(i,2).Units = 'normalized';
+        frfield(i,2).Position = [0.875 0.75-(i-1)*0.125 0.1 0.05];
     end
     fig.WindowStyle = 'modal';
     fig.CloseRequestFcn = @SE_find_spectral_bands_close;
@@ -1223,20 +1258,28 @@ end
 
 function SE_find_spectral_bands_close(fig, ~)
     global SED
+    changed = false;
 
-    frqb = {'SO','SO','delta','theta','alpha','spindle'};
+    frqb = {'SO','delta','theta','alpha','spindle'};
     ncld = length(fig.Children);
     for i=1:length(SED.frqs)
-        t = str2double(fig.Children(ncld-2-i*2).String);
-        if ~isnan(t)
-            SED.frqs(i) = t;
+        t = str2double(fig.Children(ncld-4-(i-1)*3).String);
+        if ~isnan(t) && SED.frqs(i,1) ~= t
+            SED.frqs(i,1) = t;
+            changed = true;
         end
-        if i>1
-            fprintf('%s: ]%2.1f - %2.1f] Hz\n', frqb{i}, SED.frqs(i-1), SED.frqs(i));
+        t = str2double(fig.Children(ncld-5-(i-1)*3).String);
+        if ~isnan(t) && SED.frqs(i,2) ~= t
+            SED.frqs(i,2) = t;
+            changed = true;
         end
+        fprintf('%s: %2.1f - %2.1f Hz\n', frqb{i}, SED.frqs(i,1), SED.frqs(i,2));
     end
     delete(fig);
-    SE_plot
+    if changed
+        SE_prepare_spectra;
+    end
+    SE_plot;
 end
 
 function SE_initialize
@@ -1280,7 +1323,11 @@ function SE_initialize
     SED.score.movement = [];
     SED.hori = false;
     SED.score.hori = [];
-    SED.frqs = [0.3 1.2 4 8 12 16];
+    SED.frqs = [0.1 1.0; 
+                1.0 3;
+                3 8;
+                8 12;
+                11 17]; % [0.3 1.2 4 8 12 16];
     SED.version = SEversion;
 end
 
@@ -1327,10 +1374,42 @@ function SE_update
     end
 end
 
-function [spec,t] = SE_calc_CWT(x,sr)
-    global SED
+function SE_prepare_spectra
+    % prepare spectra
+    global SED spec spec_t;
+    len = round(SED.display.epochlength * SED.header.commoninfos.samplingrate);
+    maxpage = floor(SED.header.commoninfos.datapoints/len);
+    sr = SED.header.commoninfos.samplingrate;
+    nch = SED.header.commoninfos.numberofchannels;
+    frqs = SED.frqs;
+    spec = NaN(5, len, nch, maxpage, 'single');
+    spec_t = (0:len-1)/sr;
+    fprintf('Precalculating spectra ...');
+    queue = createParallelProgressBar(maxpage);  
+    for p=1:maxpage
+
+        pos = round(((p-1)*SED.display.epochlength * sr))+1;
+        d = double(SED.data(:,pos:pos+len-1));
+        parfor c=1:nch
+            out(:,:,c) = SE_calc_CWT(d(c,:),sr,frqs);
+        end
+        spec(:,:,:,p) = out;
+        send(queue, p);  % <---
+
+    end
+    tspec = permute(spec,[1 3 2 4]);
+    tmin = min(tspec(:,:,:),[],3);
+    nspec = tspec-tmin;
+    tmed = median(nspec(:,:,:),3);
+    nspec = nspec./tmed;
+    spec = permute(nspec,[1 3 2 4]);
+
+    fprintf('done.\n')
+end
+
+function [spec,t] = SE_calc_CWT(x,sr,frqs)
     if 1
-        [tf,f] = cwt(x,'bump',sr);
+        [tf,f] = cwt(x,sr);
         tf = (abs(tf).*repmat(f.^0.3,1,length(x)));
         t = (0:length(x)-1)/sr;
     else % for those without the wavelet toolbox - not optimized yet
@@ -1339,17 +1418,91 @@ function [spec,t] = SE_calc_CWT(x,sr)
         tf = (abs(tf).*repmat(f'.^1.5,1,length(t)));
     end
     %figure;s=pcolor(t, f, tf);s.EdgeColor='none';
-    fSO = (f>SED.frqs(1) & f<=SED.frqs(2));
-    fdelta = (f>SED.frqs(2) & f<=SED.frqs(3));
-    ftheta = (f>SED.frqs(3) & f<=SED.frqs(4));
-    falpha = (f>SED.frqs(4) & f<=SED.frqs(5));
-    fspindle = (f>SED.frqs(5) & f<SED.frqs(6));
+    fSO = (f>=frqs(1,1) & f<frqs(1,2));
+    fdelta = (f>=frqs(2,1) & f<frqs(2,2));
+    ftheta = (f>=frqs(3,1) & f<frqs(3,2));
+    falpha = (f>=frqs(4,1) & f<frqs(4,2));
+    fspindle = (f>=frqs(5,1) & f<=frqs(5,2));
     pSO = mean(tf(fSO,:),1);
     pdelta = mean(tf(fdelta,:),1);
     ptheta = mean(tf(ftheta,:),1);
     palpha = mean(tf(falpha,:),1);
     pspindle = mean(tf(fspindle,:),1);
     spec = [pSO; pdelta; ptheta; palpha; pspindle];
+end
+
+function queue = createParallelProgressBar(totalIterations)
+    % createParallelProgressBar Initializes a progress bar for parallel
+    % computations with dynamic color changing from dark orange to blue.
+    %
+    % Args:
+    %     totalIterations (int): Total number of iterations for the
+    %                            progress bar.
+    %
+    % Returns:
+    %     queue (parallel.pool.DataQueue): DataQueue to receive progress
+    %                                      updates.
+    %
+    % Example usage in a parallel loop:
+    %     numSamples = 100;
+    %     % Create progress bar
+    %     queue = createParallelProgressBar(numSamples);
+    %     parfor i = 1:numSamples
+    %         % Simulate computation
+    %         pause(0.1);
+    %         % Update progress bar
+    %         send(queue, i);
+    %     end
+
+    % Initialize DataQueue and Progress Bar
+    queue = parallel.pool.DataQueue;
+    progressBar = waitbar(0, 'Processing...', 'Name', 'Computation Progress');
+    
+    % Access the Java-based components of the waitbar
+    barChildren = allchild(progressBar);
+    javaProgressBar = barChildren(1).JavaPeer;  % Access the Java progress bar
+
+    % Enable string painting to show percentage inside the bar
+    javaProgressBar.setStringPainted(true);
+
+    % Reset persistent variable count
+    persistent count
+    count = 0;
+
+    % Define colors between which the bar interpolates
+    colorEnd = [12, 123, 220] / 255; % light blue
+    colorStart = [171, 94, 0] / 255; % brown-orange
+
+    % Nested function to update progress and color
+    function updateProgress(~)
+        count = count + 1;
+        shareComplete = count / totalIterations;
+        
+        % Update waitbar position
+        waitbar(shareComplete, progressBar);
+
+        % Calculate color transition
+        currentColor = (1 - shareComplete) * colorStart + ...
+                        shareComplete * colorEnd;
+        red = currentColor(1);
+        green = currentColor(2);
+        blue = currentColor(3);
+
+        % Convert RGB triplet to Java Color
+        javaColor = java.awt.Color(red, green, blue);
+
+        % Set the progress bar color
+        javaProgressBar.setForeground(javaColor);
+        
+        % Close progress bar when complete
+        if count == totalIterations
+            close(progressBar);
+            count = [];
+        end
+    end
+
+    % Add listener to the DataQueue
+    afterEach(queue, @updateProgress);
 end
 
 % readbvconf() - read Brain Vision Data Exchange format configuration 
@@ -1976,5 +2129,39 @@ function w = hanning(n)
     else
        w = .5*(1 - cos(2*pi*(1:(n+1)/2)'/(n+1)));
        w = [w; w(end-1:-1:1)];
+    end
+end
+
+function signal=fftfilter(signal,Fs,lower,upper,type)
+    N = size(signal,1);
+    
+    dF = Fs/N;
+    f = (-Fs/2:dF:Fs/2-dF)';      
+    if strcmp(type,'bandp')
+        Filt = ((lower <= abs(f)) & (abs(f) < upper));
+    elseif strcmp(type,'notch')
+        Filt = ((abs(f) < lower) | (upper <= abs(f)));
+    else
+        error('bandp or notch?');
+    end
+    if ~any(Filt)
+        error('filter misspecified');
+    end
+    
+    
+    if ndims(signal)==3
+        for t=1:size(signal,2)
+            x=squeeze(signal(:,t,:));
+            x=bsxfun(@minus,x,mean(x));
+            spec = fftshift(fft(x),1);
+            spec = bsxfun(@times,spec,Filt);     
+            signal(:,t,:)=ifft(ifftshift(spec,1), 'symmetric');
+        end
+    else
+        x=signal;
+        x=bsxfun(@minus,x,mean(x));
+        spec = fftshift(fft(x),1);
+        spec = bsxfun(@times,spec,Filt);     
+        signal=ifft(ifftshift(spec,1), 'symmetric');
     end
 end
