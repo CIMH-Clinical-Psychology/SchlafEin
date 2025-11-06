@@ -12,52 +12,41 @@
 function SchlafEin
     global SED
     global SEversion
-    SEversion = 0.951;
-    horiversion = false;
+    SEversion = 0.952;
 
     SE_update;    
     SE_initialize;
     SE_load_prefs;
-    SED.hori = horiversion;
     ok = false;
     while ~ok
-        answer = questdlg('Open BrainVision or SchlafEin?','Select File','.vhdr','.sed','.sed');
-        if strcmp(answer,'.vhdr')
-            ok = SE_open; 
-        else
-            [fn, pn] = uigetfile({'*.sed','SchlafEin Data'},'Choose input file');
-            if fn
+        [fn, pn] = uigetfile({'*.vhdr;*.sed', 'BrainVision or SchlafEin Files (*.vhdr, *.sed)'}, ...
+                             'Choose input file');
+        if isequal(fn, 0)
+            answer = questdlg('No file selected. Do you want to quit?', ...
+                              'File Open Error', 'Yes', 'No', 'No');
+            if strcmp(answer, 'Yes')
+                SE_close;
+                return;
+            else
+                continue;
+            end
+        end
+    
+        [~, ~, ext] = fileparts(fn);
+        switch lower(ext)
+            case '.vhdr'
+                ok = SE_open(fn, pn);
+            case '.sed'
                 load(fullfile(pn, fn), 'SEDSAVE', '-MAT');
                 SEDSAVE.objects = SED.objects;
                 SED = SEDSAVE;
                 ok = true;
-                if ~isfield(SED, 'version')
-                    SED.version = 0.1;
-                end
-                if SED.version < 0.2
-                    SED.display.hiddenchans = zeros(SED.header.commoninfos.numberofchannels,1);
-                    SED.display.windowsize = [0.1 0.1 0.8 0.8];
-                    SED.display.hypwindowsize = [0.7 0.7 0.2 0.2];
-                end
-                if SED.version < 0.94
-                    SED.hori = horiversion;
-                    SED.score.hori = zeros(size(SED.score.stage,1),6);
-                    SED.frqs = [0.3 1.2 2 8 12 16];
-                end
-                if SED.version < 0.942
-                    SED.header.isecg = cellfun(@any,strfind([SED.header.channelinfos.labels],'ECG')) | cellfun(@any,strfind([SED.header.channelinfos.labels],'EKG'));
-                    SED.header.iseeg = ~(SED.header.isemg | SED.header.iseog | SED.header.isecg);
-                end
-            end
-        end
-        if ~ok
-            answer = questdlg('No file selected. Do you want to quit?','File Open Error.','Yes','No','No');
-            if strcmp(answer, 'Yes')
-                SE_close;
-                return;
-            end
+            otherwise
+                errordlg('Unsupported file type.');
+                ok = false;
         end
     end
+
     SE_create_window;
     SE_plot;
 end
@@ -73,7 +62,7 @@ function SE_plot
     maxpage = floor(SED.header.commoninfos.datapoints/len);
     x = SED.display.position:SED.display.epochlength/len:SED.display.position+SED.display.epochlength;
     st = SED.header.commoninfos.starttime+SED.display.position/(24*60*60);
-    horipos = x(1) + (2.5:5:27.5);
+    % horipos = x(1) + (2.5:5:27.5);
     
 %     plot(SED.objects.axes(nch), pspectrum(SED.data(1,:),200,'spectrogram'))
     
@@ -122,7 +111,7 @@ function SE_plot
         
         switch SED.score.stage((SED.display.position/SED.display.epochlength)+1)
                 case 0 
-                    stg_name = 'None';
+                    stg_name = 'Unscored';
                 case 1
                     stg_name = 'W';
                 case 2
@@ -134,27 +123,38 @@ function SE_plot
                 case 5
                     stg_name = 'S4';
                 case 6
-                    stg_name = 'R';
+                    stg_name = 'REM';
                 case 7
                     stg_name = 'MA';
                 case 8
                     stg_name = 'MT';
         end
               
+
+        % if ch==1
+        %     for i=1:6
+        %         if SED.score.hori(page,i)
+        %             text(SED.objects.axes(ch), horipos(i), 0, -1, ['H' num2str(SED.score.hori(page,i))],'Color',[0.5 0.5 0.5],'FontUnits','normalized','FontSize',0.5,'HorizontalAlignment','center');
+        %         end
+        %     end
+        % end
+        ax = SED.objects.axes(ch);
+
         if ch==1
-            for i=1:6
-                if SED.score.hori(page,i)
-                    text(SED.objects.axes(ch), horipos(i), 0, -1, ['H' num2str(SED.score.hori(page,i))],'Color',[0.5 0.5 0.5],'FontUnits','normalized','FontSize',0.5,'HorizontalAlignment','center');
-                end
-            end
+            % plot the stage indicator in the middle
+            text(ax, x(1)+15, ax.YLim(2), -1, stg_name, 'color' ,'blue', ...
+                'FontSize', 25, ...
+                'HorizontalAlignment','center', ...
+                'VerticalAlignment','bottom'); % add current sleep stage
         end
+
         if SED.header.iseeg(chns(ch))
+
+            % plot the current sleep stage within the EEG plot
             frqb = {'SO','delta','theta','alpha','spindle'};
             y = double(YLim(1)+(YLim(2)-YLim(1))/10:(YLim(2)-YLim(1))/5:YLim(2));
             for i=1:5
-                t = text(SED.objects.axes(ch), x(end)+0.1, y(i), frqb{i});
-                text(SED.objects.axes(ch), horipos(i), 0, -1, stg_name,'color','red', 'FontSize',15); % add current sleep stage
-%               text(SED.objects.axes(ch), x(end)+0.1, y(i), [num2str(SED.frqs(i)) '-' num2str(SED.frqs(i+1))]);
+                t = text(ax, x(end)+0.1, y(i), frqb{i});
                 t.FontUnits = 'normalized';
                 t.FontSize = 0.125;
             end
@@ -213,6 +213,7 @@ function SE_hypnogram
     if ~isfield(SED.objects, 'hypnowindow') || isempty(SED.objects.hypnowindow) || ~isvalid(SED.objects.hypnowindow)
         len = round(SED.display.epochlength * SED.header.commoninfos.samplingrate);
         maxpage = floor(SED.header.commoninfos.datapoints/len);
+
         SED.objects.hypnowindow = figure;
         set(SED.objects.hypnowindow, 'NumberTitle','off');
         set(SED.objects.hypnowindow, 'Name','SchlafEin Hypnogram');
@@ -222,20 +223,27 @@ function SE_hypnogram
         else
             set(SED.objects.hypnowindow, 'OuterPosition', SED.display.hypwindowsize);
         end
-        SED.objects.hypnoaxes = gobjects(2,1);
-        SED.objects.hypnoaxes(1) = axes('Units','normalized', 'Position',[0.1 0.20 0.85 0.75]);
-        SED.objects.hypnoaxes(2) = axes('Units','normalized', 'Position',[0.1 0.05 0.85 0.10]);
+
+        % 3 axes: [1]=hypnogram, [2]=confidence strip (~10%), [3]=MA/MT
+        SED.objects.hypnoaxes = gobjects(3,1);
+        SED.objects.hypnoaxes(1) = axes('Units','normalized', 'Position',[0.1 0.26 0.85 0.69]);
+        SED.objects.hypnoaxes(2) = axes('Units','normalized', 'Position',[0.1 0.18 0.85 0.07]);
+        SED.objects.hypnoaxes(3) = axes('Units','normalized', 'Position',[0.1 0.08 0.85 0.09]);
+        pause(0.1)
         SED.objects.hypnoaxes(1).FontUnits = 'normalized';
         SED.objects.hypnoaxes(1).FontSize = 0.075;
         SED.objects.hypnoaxes(2).FontUnits = 'normalized';
         SED.objects.hypnoaxes(2).FontSize = 0.35;
+        SED.objects.hypnoaxes(3).FontUnits = 'normalized';
+        SED.objects.hypnoaxes(3).FontSize = 0.35;
+
         SED.objects.hypnowindow.MenuBar = 'none';
         SED.objects.hypnowindow.ToolBar = 'none';
         SED.objects.hypnowindow.WindowKeyPressFcn = @SE_keypress;
         SED.objects.hypnowindow.WindowButtonDownFcn = @SE_hypclick;
-
         set(SED.objects.hypnowindow,'CloseRequestFcn','global SED; set(SED.objects.hypnowindow,"Visible","off"); SED.display.hypnogram = 0;');
 
+        % Hypnogram axis
         SED.objects.hypnoaxes(1).XAxis.Visible = 'off';
         SED.objects.hypnoaxes(1).Box = 'off';
         SED.objects.hypnoaxes(1).TickLength = [0 0];
@@ -245,33 +253,42 @@ function SE_hypnogram
         SED.objects.hypnoaxes(1).YTick = [1 1.5 2 3 4 5];
         SED.objects.hypnoaxes(1).YTickLabel = {'W' 'REM' 'S1' 'S2' 'S3' 'S4'};
 
+        % Confidence strip axis
         SED.objects.hypnoaxes(2).Box = 'off';
         SED.objects.hypnoaxes(2).XLim = [1 maxpage];
-        SED.objects.hypnoaxes(2).YLim = [0 2];
+        SED.objects.hypnoaxes(2).YLim = [0 1];
         SED.objects.hypnoaxes(2).TickLength = [0 0];
-        SED.objects.hypnoaxes(2).YTick = [0.5 1.5];
-        SED.objects.hypnoaxes(2).YTickLabel = {'MA' 'MT'};
-%         SED.objects.hypnoaxes(2).XTick = linspace(0,maxpage,len)/120;
-        SED.objects.hypnoaxes(2).XTickLabel = {unique(round(linspace(maxpage/120,maxpage)))};
-        pause(0.2);
-        SED.objects.hypnoaxes(1).YRuler.Axle.Visible = 'off';
-        SED.objects.hypnoaxes(2).YRuler.Axle.Visible = 'off';
+        SED.objects.hypnoaxes(2).XAxis.Visible = 'off';
+        % SED.objects.hypnoaxes(2).YAxis.Visible = 'off';
+        SED.objects.hypnoaxes(3).YTickLabel = {'Conf.'};
+
+        % MA/MT axis (kept as before)
+
+        SED.objects.hypnoaxes(3).Box = 'off';
+        SED.objects.hypnoaxes(3).XLim = [1 maxpage];
+        SED.objects.hypnoaxes(3).YLim = [0 2];
+        SED.objects.hypnoaxes(3).TickLength = [0 0];
+        SED.objects.hypnoaxes(3).YTick = [0.5 1.5];
+        SED.objects.hypnoaxes(3).YTickLabel = {'MA' 'MT'};
     else
         figure(SED.objects.hypnowindow);
     end
+
     warning('off', 'MATLAB:HandleGraphics:ObsoletedProperty:JavaFrame');
     warning('off','MATLAB:ui:javaframe:PropertyToBeRemoved');
-    jFrame = get(SED.objects.hypnowindow,'JavaFrame');
-    jFrame.fHG2Client.getWindow.setAlwaysOnTop(true);
+    % jFrame = get(SED.objects.hypnowindow,'JavaFrame');
+    % jFrame.fHG2Client.getWindow.setAlwaysOnTop(true);
 
+    % Clear all axes
     cla(SED.objects.hypnoaxes(1));
     cla(SED.objects.hypnoaxes(2));
-    plotcolor = SED.objects.hypnoaxes(2).XColor;
+    cla(SED.objects.hypnoaxes(3));
+
+    plotcolor = SED.objects.hypnoaxes(1).XColor;
     stages = SED.score.stage;
     moves = SED.score.movement;
-    if (stages(1)==8)
-        stages(1) = 0;
-    end
+
+    if (stages(1)==8), stages(1) = 0; end
     stages(stages==6)=1.5;
     m = find(stages==8);
     while ~isempty(m)
@@ -279,50 +296,94 @@ function SE_hypnogram
         m = find(stages==8);
     end
 
+    % Hypnogram lines
     line(SED.objects.hypnoaxes(1), [SED.display.position/SED.display.epochlength, SED.display.position/SED.display.epochlength], [0.5, 5.5], 'Color', [0.7 0.7 0.7]);
     s = find(stages(2:end) ~= stages(1:end-1));
-    ox = 1;
-    oy = stages(ox);
+    ox = 1; oy = stages(ox);
     for i=1:length(s)
-        nx = s(i)+0.5;
-        ny = stages(s(i)+1);
+        nx = s(i)+0.5; ny = stages(s(i)+1);
         if oy
             line(SED.objects.hypnoaxes(1), [ox nx], [oy oy], 'Color', plotcolor);
-            if ny
-                line(SED.objects.hypnoaxes(1), [nx nx], [oy ny], 'Color', plotcolor);
-            end
+            if ny, line(SED.objects.hypnoaxes(1), [nx nx], [oy ny], 'Color', plotcolor); end
         else
-            if ny
-                line(SED.objects.hypnoaxes(1), [nx nx], [ny ny], 'Color', plotcolor);
-            end
+            if ny, line(SED.objects.hypnoaxes(1), [nx nx], [ny ny], 'Color', plotcolor); end
         end
-        ox = nx;
-        oy = ny;
+        ox = nx; oy = ny;
     end
-    
+
+    % REM blocks
     r = (stages==1.5);
     s = find(r(2:end)>r(1:end-1));
-    if r(1)
-        s = [1; s];
-    end
+    if r(1), s = [1; s]; end
     e = find(r(2:end)<r(1:end-1));
-    if r(end)
-        e = [e; length(r)];
-    end
-    e = e-s;
+    if r(end), e = [e; length(r)]; end
+    e = e - s;
     for i=1:length(s)
         rectangle(SED.objects.hypnoaxes(1), 'Position',[s(i)+0.5 1.25 e(i) 0.5], 'EdgeColor', plotcolor, 'FaceColor', plotcolor);
     end
-    
+
+    % Confidence strip (winner class per epoch; same color grading)
+    len = round(SED.display.epochlength * SED.header.commoninfos.samplingrate);
+    maxpage = floor(SED.header.commoninfos.datapoints/len);
+    axc = SED.objects.hypnoaxes(2);
+
+    % Default gray strip
+    strip = ones(1, maxpage, 3) * 0.85;
+
+    if isfield(SED,'confidence') && ~isempty(SED.confidence.data)
+        D = double(SED.confidence.data(:,1:5));
+        n = min(size(D,1), maxpage);
+
+        switch SED.confidence.norm
+            case 1  % None: scale by global max
+                vmax = max(D, [], 'all');
+                if ~isfinite(vmax) || vmax<=0, vmax = 1; end
+                for k = 1:n
+                    v = D(k,:); if ~any(isfinite(v)), continue, end
+                    val = max(v)/vmax;  % 0..1
+                    col = SE_confidence_color_for_value(val);
+                    strip(1,k,1:3) = reshape(col,1,1,3);
+                end
+            case 2  % Normalized (row-sum to 1)
+                for k = 1:n
+                    v = D(k,:); srow = sum(v);
+                    if srow>0
+                        val = max(v./srow);
+                        col = SE_confidence_color_for_value(val);
+                        strip(1,k,1:3) = reshape(col,1,1,3);
+                    end
+                end
+            case 3  % Softmax
+                for k = 1:n
+                    v = D(k,:);
+                    y = SE_softmax(v);
+                    val = max(y);
+                    col = SE_confidence_color_for_value(val);
+                    strip(1,k,1:3) = reshape(col,1,1,3);
+                end
+        end
+    end
+
+    % Draw truecolor image spanning epochs
+    image(axc, [1 maxpage], [0 1], strip);
+    axc.YLim = [0 1];
+    axc.XLim = [1 maxpage];
+    axc.YAxis.Visible = 'off';
+    axc.XAxis.Visible = 'off';
+    hold(axc,'on');
+    % Current-epoch indicator
+    cx = SED.display.position/SED.display.epochlength;
+    line(axc, [cx cx], [0 1], 'Color', [0.7 0.7 0.7]);
+
+    % Movement (MA/MT) bar
+    axm = SED.objects.hypnoaxes(3);
     x = repmat(find(moves),1,2);
     y = [zeros(sum(moves>0),1) moves(moves>0)];
     for i=1:size(x,1)
-        line(SED.objects.hypnoaxes(2), x(i,:), y(i,:), 'Color', plotcolor);
+        line(axm, x(i,:), y(i,:), 'Color', plotcolor);
     end
-
-
-
 end
+
 
 function SE_timefreq
     global SED
@@ -623,41 +684,8 @@ function SE_create_window
     SED.objects.freebuttons(8) = uicontrol('Style','togglebutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','MT', ... 
         'Units','normalized', 'Position',[0.37 0.95 0.05 0.05]);
     SED.objects.freebuttons(8).Callback = @SE_buttonpush;
-
-    if SED.hori
-        SED.objects.hoributtons = gobjects([10,1]);
-        SED.objects.hoributtons(1) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H1', ... 
-            'Units','normalized', 'Position',[0.01 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(1).Callback = @SE_buttonpush;
-        SED.objects.hoributtons(2) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H2', ... 
-            'Units','normalized', 'Position',[0.07 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(2).Callback = @SE_buttonpush;
-        SED.objects.hoributtons(3) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H3', ... 
-            'Units','normalized', 'Position',[0.13 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(3).Callback = @SE_buttonpush;
-        SED.objects.hoributtons(4) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H4', ... 
-            'Units','normalized', 'Position',[0.19 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(4).Callback = @SE_buttonpush;
-        SED.objects.hoributtons(5) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H5', ... 
-            'Units','normalized', 'Position',[0.25 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(5).Callback = @SE_buttonpush;    
-        SED.objects.hoributtons(6) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H6', ... 
-            'Units','normalized', 'Position',[0.31 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(6).Callback = @SE_buttonpush;    
-        SED.objects.hoributtons(7) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H7', ... 
-            'Units','normalized', 'Position',[0.37 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(7).Callback = @SE_buttonpush;    
-        SED.objects.hoributtons(8) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H8', ... 
-            'Units','normalized', 'Position',[0.43 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(8).Callback = @SE_buttonpush;    
-        SED.objects.hoributtons(9) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H9', ... 
-            'Units','normalized', 'Position',[0.49 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(9).Callback = @SE_buttonpush;    
-        SED.objects.hoributtons(10) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','H0', ... 
-            'Units','normalized', 'Position',[0.59 0.9225 0.05 0.025]);
-        SED.objects.hoributtons(10).Callback = @SE_buttonpush;    
-    end
-    
+ 
+    % BOTTOM CONTROLS   
     SED.objects.ctrlbuttons = gobjects([2,1]);
     SED.objects.ctrlbuttons(1) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','<<', 'TooltipString', 'Previous Page', ... 
         'Units','normalized', 'Position',[0.85 0 0.05 0.05]);
@@ -733,10 +761,10 @@ end
 
 function SE_buttonpush(src,~)
     global SED
-    persistent horicounter
-    if isempty(horicounter)
-        horicounter = 1;
-    end
+    % persistent horicounter
+    % if isempty(horicounter)
+    %     horicounter = 1;
+    % end
     
     SED.unsaved = true;
     page = floor(SED.display.position/SED.display.epochlength)+1;
@@ -777,8 +805,8 @@ function SE_buttonpush(src,~)
             case 'H0'
                 h=0;
         end
-        SED.score.hori(page,horicounter) = h;
-        horicounter = mod(horicounter,6)+1;
+        % SED.score.hori(page,horicounter) = h;
+        % horicounter = mod(horicounter,6)+1;
         SE_plot;
     else
         switch src.String
@@ -963,40 +991,7 @@ function SE_ctrlbuttonpush(src,~)
             SEDSAVE = rmfield(SED, 'objects');
             save(fullfile(pn, fn), 'SEDSAVE', '-MAT');
         case 'Import'
-            [fn, pn] = uigetfile({'*.txt','SchlafEin Text Import'},'Select a File');
-            if ~fn
-                return;
-            end
-            [importfile, msg] = fopen(fullfile(pn, fn),'r');
-            if importfile == -1
-                errordlg(msg,'File Open Error');
-                return;
-            end
-            t = fgetl(importfile);
-            frewind(importfile);
-            if sum(uint8(t)>=48) > 2
-                s = fscanf(importfile, '%d\t%d\t\t%d\t%d\t%d\t%d\t%d\t%d\r\n', [8 Inf])';
-            else
-                s = fscanf(importfile, '%d\t%d\r\n', [2 Inf])';
-            end
-            len = size(s,1);
-            if len ~= length(SED.score.stage)
-                if len == length(SED.score.stage)-1
-                    warndlg('File length one page too short','File Import Warning');
-                else
-                    errordlg('File length incorrect','File Import Error');
-                    return;
-                end
-            end
-            s(s(:,1)>=-1 & s(:,1)<=5,1) = s(s(:,1)>=-1 & s(:,1)<=5,1)+1;
-            fclose(importfile);
-
-            SED.score.stage(1:len) = s(:,1);
-            SED.score.movement(1:len) = s(:,2);
-            SED.score.hori(1:len,:) = s(:,3:8);
-            if ~all((SED.score.movement==2) == (SED.score.stage==8))
-                error('File format error: Movement Times not in identical places');
-            end
+            SE_import_stages
             SE_hypnogram;
         case 'Export'
             dt = strfind(SED.filename,'.');
@@ -1012,7 +1007,7 @@ function SE_ctrlbuttonpush(src,~)
             stages = SED.score.stage;
             moves = SED.score.movement;
             stages(stages>=0 & stages<=6) = stages(stages>=0 & stages<=6)-1;
-            fprintf(exportfile, '%1d\t%1d\t\t%1d\t%1d\t%1d\t%1d\t%1d\t%1d\r\n',[stages, moves, SED.score.hori(:,1:6)]');
+            % fprintf(exportfile, '%1d\t%1d\t\t%1d\t%1d\t%1d\t%1d\t%1d\t%1d\r\n',[stages, moves, SED.score.hori(:,1:6)]');
             %fprintf('%1d\t%1d\n',[stages, moves]');
             fclose(exportfile);
         case 'Hide Ch'
@@ -1231,57 +1226,21 @@ function SE_keypress(~, event)
         case {'7', 'a'}
             SE_buttonpush(SED.objects.freebuttons(7),0);  % MA
         case 'numpad1'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(1),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(2),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(2),0);
         case 'numpad2'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(2),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(3),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(3),0);
         case 'numpad3'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(3),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(4),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(4),0);
         case 'numpad4'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(4),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(5),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(5),0);
         case 'numpad5'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(5),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(6),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(6),0);
         case 'numpad6'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(6),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(8),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(8),0);
         case 'numpad7'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(7),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(7),0);
-            end
-        case 'numpad8'
-            SE_buttonpush(SED.objects.hoributtons(8),0);
-        case 'numpad9'
-            SE_buttonpush(SED.objects.hoributtons(9),0);
+            SE_buttonpush(SED.objects.freebuttons(7),0);
         case 'numpad0'
-            if SED.hori
-                SE_buttonpush(SED.objects.hoributtons(10),0);
-            else
-                SE_buttonpush(SED.objects.freebuttons(1),0);
-            end
+            SE_buttonpush(SED.objects.freebuttons(1),0);
         case 'leftarrow'
             SE_ctrlbuttonpush(SED.objects.ctrlbuttons(1),0);
         case 'rightarrow'
@@ -1379,7 +1338,7 @@ function SE_hypclickTF(~, ~) %For TF plot
     end
 end
 
-function ok = SE_open
+function ok = SE_open(fn, pn)
     global SED
     if isfield(SED,'unsaved') && SED.unsaved
         answer = questdlg('Do you really want to quit?','Unsaved data.','Yes','No','No');
@@ -1387,14 +1346,17 @@ function ok = SE_open
             return;
         end
     end
-    [fn, pn] = uigetfile({'*.vhdr','BrainVision Header File'},'Select a File');
-    
+
+    if nargin < 1 
+        [fn, pn] = uigetfile({'*.vhdr','BrainVision Header File'},'Select a File');
+    end
+
     if ~fn
         ok = false;
         return;
     end
 
-    fprintf('Opening file ...');
+    fprintf('Opening file ...\n');
     hdr = readbvconf(pn, fn);
 
     if ~strcmpi(hdr.commoninfos.dataformat, 'binary')
@@ -1480,7 +1442,7 @@ function ok = SE_open
     maxpage = floor(SED.header.commoninfos.datapoints/len);
     SED.score.stage = zeros(maxpage,1);
     SED.score.movement = zeros(maxpage,1);
-    SED.score.hori = zeros(maxpage,6);
+    % SED.score.hori = zeros(maxpage,6);
     SED.header.isemg = cellfun(@any,strfind([SED.header.channelinfos.labels],'EMG')) | cellfun(@any,strfind([SED.header.channelinfos.labels],'MUS'));
     SED.header.iseog = cellfun(@any,strfind([SED.header.channelinfos.labels],'EOG'));
     SED.header.isecg = cellfun(@any,strfind([SED.header.channelinfos.labels],'ECG')) | cellfun(@any,strfind([SED.header.channelinfos.labels],'EKG'));
@@ -1490,6 +1452,9 @@ function ok = SE_open
     SED.display.ranges(SED.header.isecg) = quantile(abs(SED.data(SED.header.isecg,:)),0.99,2);
     SED.display.ranges(SED.header.iseeg) = quantile(abs(reshape(SED.data(SED.header.iseeg,:),sum(SED.header.iseeg)*size(SED.data,2),1)),0.99,1);
     SED.display.hiddenchans = zeros(SED.header.commoninfos.numberofchannels,1);
+
+    SE_try_autoload_hypnogram_txt;   
+    SE_confidence_try_autoload
 
     % Restore amplitude ranges per channel by label if available
     SE_apply_saved_ranges;
@@ -1650,8 +1615,7 @@ function SE_initialize
     SED.display.hypwindowsize = [0.6 0.1 0.3 0.2];
     SED.score.stage = [];
     SED.score.movement = [];
-    SED.hori = false;
-    SED.score.hori = [];
+    % SED.score.hori = [];
     SED.frqs = [0.3 1.2 4 8 12 16];
     SED.version = SEversion;
 
@@ -1768,6 +1732,47 @@ function [spec,t] = SE_calc_CWT(x,sr)
     spec = [pSO; pdelta; ptheta; palpha; pspindle];
 end
 
+function SE_import_stages(fn, pn)
+    global SED
+    if nargin<1
+        [fn, pn] = uigetfile({'*.txt','SchlafEin Text Import'},'Select a File');
+    end
+
+    if ~fn
+        return;
+    end
+    [importfile, msg] = fopen(fullfile(pn, fn),'r');
+    if importfile == -1
+        errordlg(msg,'File Open Error');
+        return;
+    end
+    t = fgetl(importfile);
+    frewind(importfile);
+    if sum(uint8(t)>=48) > 2
+        s = fscanf(importfile, '%d\t%d\t\t%d\t%d\t%d\t%d\t%d\t%d\r\n', [8 Inf])';
+    else
+        s = fscanf(importfile, '%d\t%d\r\n', [2 Inf])';
+    end
+    len = size(s,1);
+    if len ~= length(SED.score.stage)
+        if len == length(SED.score.stage)-1
+            warndlg('File length one page too short','File Import Warning');
+        else
+            errordlg('File length incorrect','File Import Error');
+            return;
+        end
+    end
+    s(s(:,1)>=-1 & s(:,1)<=5,1) = s(s(:,1)>=-1 & s(:,1)<=5,1)+1;
+    fclose(importfile);
+
+    SED.score.stage(1:len) = s(:,1);
+    SED.score.movement(1:len) = s(:,2);
+    % SED.score.hori(1:len,:) = s(:,3:8);
+    if ~all((SED.score.movement==2) == (SED.score.stage==8))
+        error('File format error: Movement Times not in identical places');
+    end
+end
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % START CONFIDENCE WINDOW CODE
@@ -1811,21 +1816,18 @@ function SE_confidence_window
     SED.objects.confaxes.bars = axes('Units','normalized','Position',[0.10 0.25 0.80 0.60]);
 
     % Try autoload: <loaded_file_basename>_confidences.csv
-    SE_confidence_try_autoload;
     SE_confidence_update;
 end
 
 function SE_confidence_try_autoload
     global SED
-    if isempty(SED.filename) || isempty(SED.pathname)
+    if isempty(SED.filename)
         return
     end
-    dt = strfind(SED.filename,'.');
-    if isempty(dt), return; end
-    base = SED.filename(1:dt(end)-1);
-    cand = fullfile(SED.pathname, [base '_confidences.csv']);
+    cand = replace(string(SED.filename), '.vhdr', '.confidences.csv');
     if exist(cand,'file')
         SE_confidence_load_file(cand);
+        fprintf('auto loaded confidence scores from %s\n', cand);    
     end
 end
 
@@ -1848,8 +1850,9 @@ function SE_confidence_load_file(fullpath)
     catch
         try
             dat = csvread(fullpath);
-        catch
-            warning('Cannot read CSV.');
+        catch ME
+            fprintf(2, 'Error readinc confidence CSV:\n');
+            disp(getReport(ME, 'extended'));
             return
         end
     end
@@ -1961,20 +1964,42 @@ end
 
 function col = SE_confidence_color_for_value(val)
     % val expected in [0,1]; clamps outside.
+
     if ~isfinite(val)
         col = [0 0 1];
         return
     end
+
+    % thresholds
+    thresh_red    = 0.6;   % end of red->yellow ramp
+    thresh_yellow = 0.75;  % yellow plateau end
+    thresh_green  = 0.9;   % end of yellow->green ramp
+
+    % clamp and sanity
     t = min(max(val,0),1);
-    if t <= 0.4
-        r = 1; g = t/0.4; b = 0;           % red-yellow
-    elseif t <= 0.8
-        r = 1 - (t-0.4)/0.4; g = 1; b = 0; % yellow-green
-    else
-        r = 0; g = 1; b = 0;               % green
+    if ~(thresh_red <= thresh_yellow && thresh_yellow <= thresh_green)
+        thresh_red = 0.4; thresh_yellow = 0.7; thresh_green = 0.9;
     end
-    col = [r g b];
+
+    if t <= thresh_red
+        % red -> yellow
+        a = 1;
+        if thresh_red > 0, a = t / thresh_red; end
+        col = [1, a, 0];
+    elseif t <= thresh_yellow
+        % pure yellow plateau
+        col = [1, 1, 0];
+    elseif t <= thresh_green
+        % yellow -> green
+        span = max(thresh_green - thresh_yellow, eps);
+        a = (t - thresh_yellow) / span;
+        col = [1 - a, 1, 0];
+    else
+        % pure green
+        col = [0, 1, 0];
+    end
 end
+
 
 
 
@@ -1991,8 +2016,9 @@ function SE_set_always_on_top(hFig, tf)
         warning('off','MATLAB:ui:javaframe:PropertyToBeRemoved');
         jFrame = get(hFig,'JavaFrame');
         jFrame.fHG2Client.getWindow.setAlwaysOnTop(tf);
-    catch
-        % Cannot enforce; ignore
+    catch ME
+        fprintf(2, 'Error setting on top\n');
+        disp(getReport(ME, 'extended'));
     end
 end
 % END CONFIDENCE WINDOW CODE
@@ -2004,7 +2030,7 @@ end
 function SE_load_prefs
     global SED
     try
-        pth = fullfile(prefdir, 'SchlafEin_preferences.mat');
+        pth = fullfile(fileparts(mfilename('fullpath')), 'SchlafEin_preferences.mat');
         if exist(pth,'file')
             S = load(pth, '-mat'); % expects struct 'prefs'
             if isfield(S, 'prefs')
@@ -2047,8 +2073,9 @@ function SE_load_prefs
 
             end
         end
-    catch
-        % Ignore load errors
+    catch ME
+        fprintf(2, 'Error loading settings:\n');
+        disp(getReport(ME, 'extended'));
     end
 end
 
@@ -2077,13 +2104,18 @@ function SE_save_prefs
     try
         % Update from current state
         SED.prefs.frqs = SED.frqs;
-        if isfield(SED,'conf') && isfield(SED.conf,'norm') && ~isempty(SED.confidence.norm)
+
+        if isfield(SED,'confidence') && isfield(SED.confidence,'norm') && ~isempty(SED.confidence.norm)
             SED.prefs.norm = SED.confidence.norm;
         end
-        % Save per-label ranges for later restoration
-        SED.prefs.ranges = SE_capture_current_ranges();
 
-        % Save latest epoch for current file
+        % Save per-label ranges only when header/display are present
+        if isfield(SED,'header') && isstruct(SED.header) && ...
+           isfield(SED,'display') && isfield(SED.display,'ranges') && ~isempty(SED.display.ranges)
+            SED.prefs.ranges = SE_capture_current_ranges();
+        end
+
+        % Save latest epoch for current file (if any file is known)
         SE_prefs_upsert_last_epoch;
 
         % Window positions
@@ -2111,21 +2143,68 @@ function SE_save_prefs
         SED.prefs.winpos = wp;
 
         prefs = SED.prefs; %#ok<NASGU>
-        pth = fullfile(prefdir, 'SchlafEin_preferences.mat');
+        pth = fullfile(fileparts(mfilename('fullpath')), 'SchlafEin_preferences.mat');
         save(pth, 'prefs', '-mat');
-    catch
-        % Ignore save errors
+    catch ME
+        fprintf(2, 'Error saving settings:\n');
+        disp(getReport(ME, 'extended'));
     end
 end
 
+
 function R = SE_capture_current_ranges
+    % Robustly capture current per-channel labels and amplitude ranges.
     global SED
-    labels = cell(1, SED.header.commoninfos.numberofchannels);
-    for ch = 1:numel(labels)
-        labels{ch} = SED.header.channelinfos(ch).labels{1};
+
+    R = struct('labels', {{}}, 'values', []);
+    if ~isfield(SED,'header') || ~isstruct(SED.header) || ...
+       ~isfield(SED,'display') || ~isfield(SED.display,'ranges') || isempty(SED.display.ranges)
+        return
     end
-    R = struct('labels', {labels}, 'values', SED.display.ranges);
+
+    % Determine channel count
+    n = [];
+    if isfield(SED.header,'commoninfos') && isfield(SED.header.commoninfos,'numberofchannels')
+        n = SED.header.commoninfos.numberofchannels;
+        if ischar(n) || isstring(n)
+            n = str2double(n);
+        end
+    end
+    if isempty(n) || ~isscalar(n) || ~isfinite(n)
+        n = numel(SED.display.ranges);
+    end
+    n = max(1, round(n));
+
+    % Build labels safely
+    labels = cell(1, n);
+    for ch = 1:n
+        lbl = '';
+        if isfield(SED.header,'channelinfos') && numel(SED.header.channelinfos) >= ch && ...
+           isfield(SED.header.channelinfos(ch),'labels') && ~isempty(SED.header.channelinfos(ch).labels)
+            raw = SED.header.channelinfos(ch).labels;
+            if iscell(raw) && ~isempty(raw)
+                lbl = raw{1};
+            elseif ischar(raw) || isstring(raw)
+                lbl = char(raw);
+            end
+        end
+        if isempty(lbl)
+            lbl = sprintf('Ch%d', ch);
+        end
+        labels{ch} = lbl;
+    end
+
+    % Align values to n channels
+    vals = SED.display.ranges(:)';
+    if numel(vals) < n
+        vals(end+1:n) = 0;
+    else
+        vals = vals(1:n);
+    end
+
+    R = struct('labels', {labels}, 'values', vals(:));
 end
+
 
 function SE_apply_saved_ranges
     global SED
@@ -2799,4 +2878,27 @@ function SE_input_page(~, varargin)
     end
     SED.display.position = (newpage-1) * SED.display.epochlength;
     SE_plot;
+end
+
+function SE_try_autoload_hypnogram_txt
+    global SED
+    if isempty(SED.filename) || isempty(SED.pathname)
+        return
+    end
+
+    [~, base] = fileparts(SED.filename);   % SED.filename is just the name
+    fn = [base '.txt'];                    % candidate hypnogram filename
+    pn = SED.pathname;                     % directory containing the .vhdr
+    cand = fullfile(pn, fn);
+
+    if ~exist(cand, 'file')
+        return
+    end
+
+    try
+        SE_import_stages(fn, pn);
+    catch ME
+        fprintf(2, 'Error setting on top\n');
+        disp(getReport(ME, 'extended'));
+    end
 end
