@@ -697,7 +697,7 @@ function SE_create_window
     SED.objects.ctrlbuttons(3) = uicontrol('Style','pushbutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','Hypno', 'TooltipString', 'Hypnogram', ... 
         'Units','normalized', 'Position',[0.94 0.95 0.05 0.05]);
     SED.objects.ctrlbuttons(3).Callback = @SE_ctrlbuttonpush;    
-    SED.objects.ctrlbuttons(4) = uicontrol('Style','togglebutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','Line', 'TooltipString', 'Toggle 75µV Line', ... 
+    SED.objects.ctrlbuttons(4) = uicontrol('Style','togglebutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','Line', 'TooltipString', 'Toggle 75ï¿½V Line', ... 
         'Units','normalized', 'Position',[0.88 0.95 0.05 0.05]);
     SED.objects.ctrlbuttons(4).Callback = @SE_ctrlbuttonpush;    
     SED.objects.ctrlbuttons(5) = uicontrol('Style','togglebutton', 'FontUnits', 'normalized', 'FontSize', 0.5, 'String','Zoom', 'TooltipString', 'Toggle Zoom', ... 
@@ -847,6 +847,7 @@ function SE_buttonpush(src,~)
             end
         end
         SE_hypnogram;
+        SE_plot;
 %         SE_timefreqhyp;
     end
 end
@@ -2867,7 +2868,7 @@ function SE_input_page(~, varargin)
     global SED
     len = round(SED.display.epochlength * SED.header.commoninfos.samplingrate);
     maxpage = floor(SED.header.commoninfos.datapoints/len);
-    answer = inputdlg(sprintf('Enter page number (1–%d):', maxpage), ...
+    answer = inputdlg(sprintf('Enter page number (1ï¿½%d):', maxpage), ...
                       'Go to page', 1, {num2str(floor(SED.display.position/SED.display.epochlength)+1)});
     if isempty(answer)
         return
