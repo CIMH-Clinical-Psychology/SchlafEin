@@ -8,11 +8,12 @@
 % 0.950sk - add button to jump to page
 % 0.951sk - add hypnogram confidence rating display
 % 0.952sk - add saving and restoring of settings across sessions
+% 0.953sk - fix exporting of hypnogram
 
 function SchlafEin
     global SED
     global SEversion
-    SEversion = 0.952;
+    SEversion = 0.953;
 
     SE_update;    
     SE_initialize;
@@ -1007,8 +1008,8 @@ function SE_ctrlbuttonpush(src,~)
             stages = SED.score.stage;
             moves = SED.score.movement;
             stages(stages>=0 & stages<=6) = stages(stages>=0 & stages<=6)-1;
-            % fprintf(exportfile, '%1d\t%1d\t\t%1d\t%1d\t%1d\t%1d\t%1d\t%1d\r\n',[stages, moves, SED.score.hori(:,1:6)]');
-            %fprintf('%1d\t%1d\n',[stages, moves]');
+            %fprintf(exportfile, '%1d\t%1d\t\t%1d\t%1d\t%1d\t%1d\t%1d\t%1d\r\n',[stages, moves, SED.score.hori(:,1:6)]');
+            fprintf(exportfile, '%1d\t%1d\n',[stages, moves]');
             fclose(exportfile);
         case 'Hide Ch'
             chns = find(~SED.display.hiddenchans);
